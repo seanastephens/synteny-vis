@@ -16,12 +16,24 @@
       }
       .synteny {
         stroke: green;
-        stroke-width: 1;
+        stroke-width: 2;
+      }
+      .extent {
+        fill: grey;
+        opacity: .2;
+      }
+      .textInPlot {
+        font-family: Verdana, geneva, sans-serif;
+        font-size: 14pt;
+      }
+      .xAxis > line {
+        stroke-width: 2;
       }
     </style>
   </head>
   <body>
     <script>
+'use strict'
 
 function cumulative_counts(data) {
   var ret = []
@@ -35,9 +47,9 @@ function cumulative_counts(data) {
 }
 
 queue()
-.defer(d3.json, 'data/ecoli.json')
-.defer(d3.json, 'lengths/4241.json')
-.defer(d3.json, 'lengths/4242.json')
+.defer(d3.json, 'data/homo_chimp.json')
+.defer(d3.json, 'lengths/11691.json')
+.defer(d3.json, 'lengths/25577.json')
 .await(function(error, data, aLengths, bLengths) {
   if(error) { console.log(error); return; }
   
@@ -108,12 +120,28 @@ queue()
   var xScale = d3.scale.linear().domain(xExtent).range([0, width]);
   var yScale = d3.scale.linear().domain(yExtent).range([height, 0]);
 
-  var zoom = d3.behavior.zoom().x(xScale).y(yScale).on('zoom', zoomed);
+  var zoom = d3.behavior.zoom().x(xScale).y(yScale).on('zoom', zoom);
+
+  var brush = d3.svg.brush().x(xScale).y(yScale)
+    .on('brush', function() {
+      updatePlot(brush.extent());
+    })
+    .on('brushend', function() {
+      if(brush.empty()) {
+        console.log('empty');
+        updatePlot([[0,0],[1e15,1e15]]);
+      }
+    });
 
   var svg = d3.select('body').append('svg')
-    .attr({width: width, height: height})
-    .call(zoom).append('g');
+    .attr({width: width, height: height}).classed('main', true)
+    .call(zoom).on('mousedown.zoom', null) //disable panning
+    .call(brush).append('g');
+  
 
+  var plotWidth = 600, plotHeight = 600;
+  var plot = d3.select('body').append('svg')
+    .attr({width: plotWidth, height: plotHeight});
 
   // Grid lines
   svg.selectAll('.grid-vertical')
@@ -135,24 +163,84 @@ queue()
     });
 
   // Data
-  var data = svg.selectAll('.synteny').data(data).enter()
-    .append('path')
+  var dataSel = svg.selectAll('.synteny').data(data).enter()
+    .append('line')
     .classed('synteny', true)
-    .attr('d', function(d) {
-      var x1 = xScale(d.adjustedStart1), x2 = xScale(d.adjustedStop1),
-          y1 = yScale(d.adjustedStart2), y2 = yScale(d.adjustedStop2);
-      return 'M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2;
-    })
-    .attr('transform', transform);
+    .attr('x1', function(d) { return xScale(d.adjustedStart1); })
+    .attr('y1', function(d) { return yScale(d.adjustedStart2); })
+    .attr('x2', function(d) { return xScale(d.adjustedStop1); })
+    .attr('y2', function(d) { return yScale(d.adjustedStop2); });
 
-  function zoomed() {
-    data.attr("transform", transform);
+  function zoom() {
+    svg.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
+
+    var modifiedXExtent = xScale.domain(); 
+    var modifiedYExtent = yScale.domain(); 
+    var screenWidth = modifiedXExtent[1] - modifiedXExtent[0]; // Ratio is same using x or y
+    var original = xExtent[1] - xExtent[0];
+    var strokeWidth = 2;
+    var scaling = strokeWidth * screenWidth / original;
+
+    var xMax = modifiedXExtent[1], xMin = modifiedXExtent[0];
+    var yMax = modifiedYExtent[1], yMin = modifiedYExtent[0];
+    console.log(xMax, xMin);
+    console.log(yMax, yMin);
+    dataSel
+      .filter(function(d) { return d.adjustedStart1 < xMax && d.adjustedStart1 > xMin && d.adjustedStart2 < yMax && d.adjustedStart2 > yMin; })
+      .style('stroke-width', scaling);
+    d3.selectAll('.grid-horizontal', scaling).style('stroke-width', scaling);
+    d3.selectAll('.grid-vertical', scaling).style('stroke-width', scaling);
+
+    updatePlot(brush.extent());
   }
 
-  function transform(d) {
-      var x1 = xScale(d.adjustedStart1), x2 = xScale(d.adjustedStop1),
-          y1 = yScale(d.adjustedStart2), y2 = yScale(d.adjustedStop2);
-      return "translate(" + x1 + "," + y1 + ")";
+  var numTicks = 20;
+  plot.selectAll('rect').data(d3.range(numTicks)).enter().append('rect');
+
+  function updatePlot(extent) {
+    var e = extent;
+    var field = 'Kn';
+    var filteredData = _.chain(data).filter(function(d) { 
+        return d.adjustedStart1 > e[0][0] && d.adjustedStart1 < e[1][0] &&
+            d.adjustedStart2 > e[0][1] && d.adjustedStart2 < e[1][1];
+        }).pluck(field).value();
+
+    var plotData = d3.layout.histogram()
+      .bins(d3.scale.linear().ticks(numTicks))(filteredData);
+
+    var margin = 50;
+    var xPlotScale = d3.scale.linear()
+      .range([margin, plotWidth - margin]);
+    var yPlotScale = d3.scale.linear()
+      .domain([0, data.length/4])
+      .range([plotHeight - margin, margin]);
+    var xAxis = d3.svg.axis().scale(xPlotScale).orient('bottom');
+    var yAxis = d3.svg.axis().scale(yPlotScale).orient('left');
+
+    plot.selectAll('rect').data(plotData)
+      .attr('x', function(d) { return xPlotScale(d.x); })
+      .attr('width', function(d) { return xPlotScale(d.dx) - margin; })
+      .attr('y', function(d) { return yPlotScale(d.y); })
+      .attr('height', function(d) { return plotHeight - margin - yPlotScale(d.y); })
+      .attr('fill', 'steelblue')
+
+    plot.select('text').remove();
+    plot.selectAll('.xAxis').remove();
+    plot.selectAll('.yAxis').remove();
+    plot.append('text')
+      .attr('x', 2 * plotHeight / 3)
+      .attr('width', plotHeight / 3)
+      .attr('y', 50)
+      .attr('height', 50)
+      .classed('textInPlot', true)
+      .text(field);
+
+    plot.append('g')
+      .attr('transform', 'translate(0,' + (plotHeight - 50) + ')') 
+      .classed('xAxis', true).call(xAxis);
+    plot.append('g')
+      .attr('transform', 'translate(50,0)') 
+      .classed('yAxis', true).call(yAxis);
   }
 });
 
