@@ -16,7 +16,7 @@
       }
       .synteny {
         stroke: green;
-        stroke-width: 2;
+        stroke-width: 1;
       }
     </style>
   </head>
@@ -100,17 +100,20 @@ queue()
 
   var xTotalBPs = _.last(xCumBPCount);
   var yTotalBPs = _.last(yCumBPCount);
-  var dim = 1000;
-  var width = dim;
-  var height = dim * (yTotalBPs / xTotalBPs);
+  var width = 600;
+  var height = width * (yTotalBPs / xTotalBPs);
 
   var xExtent = [0, xTotalBPs];
   var yExtent = [0, yTotalBPs];
   var xScale = d3.scale.linear().domain(xExtent).range([0, width]);
   var yScale = d3.scale.linear().domain(yExtent).range([height, 0]);
 
+  var zoom = d3.behavior.zoom().x(xScale).y(yScale).on('zoom', zoomed);
+
   var svg = d3.select('body').append('svg')
-    .attr({width: width, height: height});
+    .attr({width: width, height: height})
+    .call(zoom).append('g');
+
 
   // Grid lines
   svg.selectAll('.grid-vertical')
@@ -121,6 +124,7 @@ queue()
       var y1 = 0, y2 = height;
       return 'M ' + x + ' ' + y1 + ' L ' + x + ' ' + y2;
     });
+
   svg.selectAll('.grid-horizontal')
     .data(yCumBPCount).enter().append('path')
     .classed('grid-horizontal', true)
@@ -131,14 +135,25 @@ queue()
     });
 
   // Data
-  svg.selectAll('.synteny').data(data).enter()
+  var data = svg.selectAll('.synteny').data(data).enter()
     .append('path')
     .classed('synteny', true)
     .attr('d', function(d) {
       var x1 = xScale(d.adjustedStart1), x2 = xScale(d.adjustedStop1),
           y1 = yScale(d.adjustedStart2), y2 = yScale(d.adjustedStop2);
       return 'M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2;
-    });
+    })
+    .attr('transform', transform);
+
+  function zoomed() {
+    data.attr("transform", transform);
+  }
+
+  function transform(d) {
+      var x1 = xScale(d.adjustedStart1), x2 = xScale(d.adjustedStop1),
+          y1 = yScale(d.adjustedStart2), y2 = yScale(d.adjustedStop2);
+      return "translate(" + x1 + "," + y1 + ")";
+  }
 });
 
     </script>

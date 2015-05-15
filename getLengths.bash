@@ -15,7 +15,7 @@ wget -O $temp1 "https://genomevolution.org/coge/FeatList.pl?dsgid=${1}&ftid=4;gs
 echo '{'
 echo "\"id\":\"$1\","
 echo '"lengths":['
-head -n-1 $temp2 | tail -n+2
+head -n-1 $temp2
 tail -n1 $temp2 | sed 's/},/}/g'
 echo ']'
 echo '}'
